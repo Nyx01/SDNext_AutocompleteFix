@@ -26,25 +26,28 @@ const autocompleteCSS = `
         background-color: transparent;
         min-width: fit-content;
     }
-    .autocompleteParent {
-        display: flex;
-        position: absolute;
-        z-index: 999;
-        max-width: calc(100% - 1.5rem);
-        margin: 5px 0 0 0;
-    }
-    .autocompleteResults {
-        background-color: var(--results-bg) !important;
-        border: var(--results-border-width) solid var(--results-border-color) !important;
-        color: var(--results-neutral-text) !important;
-        border-radius: 12px !important;
-        height: fit-content;
-        flex-basis: fit-content;
-        flex-shrink: 0;
-        overflow-y: var(--results-overflow-y);
-        overflow-x: hidden;
-        word-break: break-word;
-    }
+.autocompleteParent {
+    display: flex;
+    position: absolute;
+    z-index: 999;
+    max-width: calc(100% - 1.5rem);
+    flex-direction: column; /* Ensure children stack vertically */
+}
+
+.autocompleteResults {
+    background-color: var(--results-bg) !important;
+    border: var(--results-border-width) solid var(--results-border-color) !important;
+    color: var(--results-neutral-text) !important;
+    border-radius: 12px !important;
+    height: fit-content;
+    flex-basis: fit-content;
+    flex-shrink: 0;
+    overflow-y: var(--results-overflow-y);
+    overflow-x: hidden;
+    word-break: break-word;
+    margin-top: 10px; /* Margin to create space below the cursor */
+}
+
     .sideInfo {
         display: none;
         position: relative;
@@ -357,10 +360,12 @@ function showResults(textArea) {
     parentDiv.style.display = "flex";
 
     if (TAC_CFG.slidingPopup) {
-        let caretPosition = getCaretCoordinates(textArea, textArea.selectionEnd).left;
-        let offset = Math.min(textArea.offsetLeft - textArea.scrollLeft + caretPosition, textArea.offsetWidth - parentDiv.offsetWidth);
+        let caretPosition = getCaretCoordinates(textArea, textArea.selectionEnd);
+        let offsetTop = textArea.offsetTop + caretPosition.top + 15; // Adjust this value for desired distance below cursor
+        let offsetLeft = Math.min(textArea.offsetLeft - textArea.scrollLeft + caretPosition.left, textArea.offsetWidth - parentDiv.offsetWidth);
 
-        parentDiv.style.left = `${offset}px`;
+        parentDiv.style.top = `${offsetTop}px`; // Position below the cursor
+        parentDiv.style.left = `${offsetLeft}px`;
     } else {
         if (parentDiv.style.left)
             parentDiv.style.removeProperty("left");
@@ -372,6 +377,7 @@ function showResults(textArea) {
     let previewDiv = gradioApp().querySelector(`.autocompleteParent${textAreaId} .sideInfo`);
     previewDiv.style.display = "none";
 }
+
 function hideResults(textArea) {
     let textAreaId = getTextAreaIdentifier(textArea);
     let resultsDiv = gradioApp().querySelector('.autocompleteParent' + textAreaId);
