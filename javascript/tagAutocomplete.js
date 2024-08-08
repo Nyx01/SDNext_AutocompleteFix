@@ -825,7 +825,7 @@ function addResultsToList(textArea, results, tagword, resetList) {
         // Check if it's a negative prompt
         let isNegative = textAreaId.includes("n");
 
-        // Add listener
+        // Add click listener
         li.addEventListener("click", (e) => {
             if (e.ctrlKey || e.metaKey) {
                 resetUseCount(result.text, result.type, !isNegative, isNegative);
@@ -834,6 +834,38 @@ function addResultsToList(textArea, results, tagword, resetList) {
                 insertTextAtCursor(textArea, result, tagword);
             }
         });
+        // Add delayed hover listener for extra network previews
+        if (
+            TAC_CFG.showExtraNetworkPreviews &&
+            [
+                ResultType.embedding,
+                ResultType.hypernetwork,
+                ResultType.lora,
+                ResultType.lyco,
+            ].includes(result.type)
+        ) {
+            li.addEventListener("mouseover", async () => {
+                const me = this;
+                let hoverTimeout;
+
+                hoverTimeout = setTimeout(async () => {
+                    // If the tag we hover over is already selected, do nothing
+                    if (selectedTag && selectedTag === i) return;
+
+                    oldSelectedTag = selectedTag;
+                    selectedTag = i;
+
+                    // Update selection without scrolling to the item (since we would
+                    // immediately trigger the next scroll as the items move under the cursor)
+                    updateSelectionStyle(textArea, selectedTag, oldSelectedTag, false);
+                }, 400);
+                 // Reset delay timer if we leave the item
+                me.addEventListener("mouseout", () => {
+                    clearTimeout(hoverTimeout);
+                });
+            });
+        }
+
         // Add element to list
         resultsList.appendChild(li);
     }
@@ -861,8 +893,8 @@ async function updateSelectionStyle(textArea, newIndex, oldIndex) {
         let selected = items[newIndex];
         selected.classList.add('selected');
 
-         // Set scrolltop to selected item
-        resultDiv.scrollTop = selected.offsetTop - resultDiv.offsetTop;
+        // Set scrolltop to selected item
+        if (scroll) resultDiv.scrollTop = selected.offsetTop - resultDiv.offsetTop;
     }
 
     // Show preview if enabled and the selected type supports it
