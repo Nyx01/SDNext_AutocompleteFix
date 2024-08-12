@@ -713,6 +713,10 @@ def api_tac(_: gr.Blocks, app: FastAPI):
     async def get_lora_info(lora_name):
         return await get_json_info(LORA_PATH, lora_name)
 
+    @app.get("/tacapi/v1/lora-info/{lora_name}")
+    async def get_lora_info(lora_name):
+        return await get_json_info(LORA_PATH, lora_name)
+
     @app.get("/tacapi/v1/lyco-info/{lyco_name}")
     async def get_lyco_info(lyco_name):
         return await get_json_info(LYCO_PATH, lyco_name)
@@ -781,7 +785,8 @@ def api_tac(_: gr.Blocks, app: FastAPI):
             return Response(status_code=200) # Success
         else:
             return Response(status_code=304) # Not modified
-    def db_request(func, get = False):
+
+    def db_request(func, get=False):
         if db is not None:
             try:
                 if get:
