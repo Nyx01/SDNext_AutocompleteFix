@@ -13,7 +13,7 @@ import gradio as gr
 import yaml
 from fastapi import FastAPI
 from fastapi.responses import Response, FileResponse, JSONResponse
-from modules import script_callbacks, sd_hijack, shared, hashes, sd_models
+from modules import script_callbacks, sd_hijack, shared, hashes
 from pydantic import BaseModel
 
 from scripts.model_keyword_support import (get_lora_simple_hash,
@@ -41,32 +41,9 @@ except (ImportError, ValueError, sqlite3.Error) as e:
     print(f"Tag Autocomplete: Tag frequency database error - \"{e}\"")
     db = None
 
-def get_embed_db(sd_model=None):
-    """Returns the embedding database, if available."""
-    try:
-        return sd_hijack.model_hijack.embedding_db
-    except Exception:
-        try: # sd next with diffusers backend
-            sdnext_model = sd_model if sd_model is not None else shared.sd_model
-            return sdnext_model.embedding_db
-        except Exception:
-            try: # forge webui
-                forge_model = sd_model if sd_model is not None else sd_models.model_data.get_sd_model()
-                if type(forge_model).__name__ == "FakeInitialModel":
-                    return None
-                else:
-                    processer = getattr(forge_model, "text_processing_engine", getattr(forge_model, "text_processing_engine_l"))
-                    return processer.embeddings
-            except Exception:
-                return None
-
 # Attempt to get embedding load function, using the same call as api.
 try:
-    embed_db = get_embed_db()
-    if embed_db is not None:
-        load_textual_inversion_embeddings = embed_db.load_textual_inversion_embeddings
-    else:
-        load_textual_inversion_embeddings = lambda *args, **kwargs: None
+    load_textual_inversion_embeddings = sd_hijack.model_hijack.embedding_db.load_textual_inversion_embeddings
 except Exception as e: # Not supported.
     load_textual_inversion_embeddings = lambda *args, **kwargs: None
     print("Tag Autocomplete: Cannot reload embeddings instantly:", e)
@@ -74,8 +51,8 @@ except Exception as e: # Not supported.
 # Sorting functions for extra networks / embeddings stuff
 sort_criteria = {
     "Name": lambda path, name, subpath: name.lower() if subpath else path.stem.lower(),
-    "Date Modified (newest first)": lambda path, name, subpath: path.stat().st_mtime if path.exists() else name.lower(),
-    "Date Modified (oldest first)": lambda path, name, subpath: path.stat().st_mtime if path.exists() else name.lower()
+    "Date Modified (newest first)": lambda path, name, subpath: path.stat().st_mtime,
+    "Date Modified (oldest first)": lambda path, name, subpath: path.stat().st_mtime
 }
 
 def sort_models(model_list, sort_method = None, name_has_subpath = False):
@@ -213,45 +190,35 @@ def get_embeddings(sd_model):
     results = []
 
     try:
-        embed_db = get_embed_db(sd_model)
-        # Re-register callback if needed
-        global load_textual_inversion_embeddings
-        if embed_db is not None and load_textual_inversion_embeddings != embed_db.load_textual_inversion_embeddings:
-            load_textual_inversion_embeddings = embed_db.load_textual_inversion_embeddings
+        # The sd_model embedding_db reference only exists in sd.next with diffusers backend
+        try:
+            loaded_sdnext = sd_model.embedding_db.word_embeddings
+            skipped_sdnext = sd_model.embedding_db.skipped_embeddings
+        except (NameError, AttributeError):
+            loaded_sdnext = {}
+            skipped_sdnext = {}
         
-        loaded = embed_db.word_embeddings
-        skipped = embed_db.skipped_embeddings
+        # Get embedding dict from sd_hijack to separate v1/v2 embeddings
+        loaded = sd_hijack.model_hijack.embedding_db.word_embeddings
+        skipped = sd_hijack.model_hijack.embedding_db.skipped_embeddings
+        loaded = loaded | loaded_sdnext
+        skipped = skipped | skipped_sdnext
 
         # Add embeddings to the correct list
         for key, emb in (skipped | loaded).items():
-            filename = getattr(emb, "filename", None)
-            
-            if filename is None:
-                if emb.shape is None:
-                    emb_unknown.append((Path(key), key, ""))
-                elif emb.shape == V1_SHAPE:
-                    emb_v1.append((Path(key), key, "v1"))
-                elif emb.shape == V2_SHAPE:
-                    emb_v2.append((Path(key), key, "v2"))
-                elif emb.shape == VXL_SHAPE:
-                    emb_vXL.append((Path(key), key, "vXL"))
-                else:
-                    emb_unknown.append((Path(key), key, ""))
-            
-            else:
-                if emb.filename is None:
-                    continue
+            if emb.filename is None:
+                continue
 
-                if emb.shape is None:
-                    emb_unknown.append((Path(emb.filename), Path(emb.filename).relative_to(EMB_PATH).as_posix(), ""))
-                elif emb.shape == V1_SHAPE:
-                    emb_v1.append((Path(emb.filename), Path(emb.filename).relative_to(EMB_PATH).as_posix(), "v1"))
-                elif emb.shape == V2_SHAPE:
-                    emb_v2.append((Path(emb.filename), Path(emb.filename).relative_to(EMB_PATH).as_posix(), "v2"))
-                elif emb.shape == VXL_SHAPE:
-                    emb_vXL.append((Path(emb.filename), Path(emb.filename).relative_to(EMB_PATH).as_posix(), "vXL"))
-                else:
-                    emb_unknown.append((Path(emb.filename), Path(emb.filename).relative_to(EMB_PATH).as_posix(), ""))
+            if emb.shape is None:
+                emb_unknown.append((Path(emb.filename), Path(emb.filename).relative_to(EMB_PATH).as_posix(), ""))
+            elif emb.shape == V1_SHAPE:
+                emb_v1.append((Path(emb.filename), Path(emb.filename).relative_to(EMB_PATH).as_posix(), "v1"))
+            elif emb.shape == V2_SHAPE:
+                emb_v2.append((Path(emb.filename), Path(emb.filename).relative_to(EMB_PATH).as_posix(), "v2"))
+            elif emb.shape == VXL_SHAPE:
+                emb_vXL.append((Path(emb.filename), Path(emb.filename).relative_to(EMB_PATH).as_posix(), "vXL"))
+            else:
+                emb_unknown.append((Path(emb.filename), Path(emb.filename).relative_to(EMB_PATH).as_posix(), ""))
 
         results = sort_models(emb_v1) + sort_models(emb_v2) + sort_models(emb_vXL) + sort_models(emb_unknown)
     except AttributeError:
@@ -463,11 +430,8 @@ def refresh_embeddings(force: bool, *args, **kwargs):
         # Fix for SD.Next infinite refresh loop due to gradio not updating after model load on demand.
         # This will just skip embedding loading if no model is loaded yet (or there really are no embeddings).
         # Try catch is just for safety incase sd_hijack access fails for some reason.
-        embed_db = get_embed_db()
-        if embed_db is None:
-            return
-        loaded = embed_db.word_embeddings
-        skipped = embed_db.skipped_embeddings
+        loaded = sd_hijack.model_hijack.embedding_db.word_embeddings
+        skipped = sd_hijack.model_hijack.embedding_db.skipped_embeddings
         if len((loaded | skipped)) > 0:
             load_textual_inversion_embeddings(force_reload=force)
             get_embeddings(None)
@@ -490,7 +454,14 @@ def write_style_names(*args, **kwargs):
 def write_temp_files(skip_wildcard_refresh = False):
     # Write wildcards to wc.txt if found
     if WILDCARD_PATH.exists() and not skip_wildcard_refresh:
-        wildcards = [WILDCARD_PATH.relative_to(FILE_DIR).as_posix()] + get_wildcards()
+        try:
+            # Attempt to create a relative path, but fall back to an absolute path if not possible
+            relative_wildcard_path = WILDCARD_PATH.relative_to(FILE_DIR).as_posix()
+        except ValueError:
+            # If the paths are not relative, use the absolute path
+            relative_wildcard_path = WILDCARD_PATH.as_posix()
+
+        wildcards = [relative_wildcard_path] + get_wildcards()
         if wildcards:
             write_to_temp_file('wc.txt', wildcards)
 
